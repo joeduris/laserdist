@@ -1,5 +1,7 @@
 # -*- coding: iso-8859-1 -*-
 
+# Joe Duris - jduris@slac.stanford.edu
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.special import erfinv
