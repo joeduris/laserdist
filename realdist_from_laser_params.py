@@ -1,0 +1,184 @@
+# -*- coding: iso-8859-1 -*-
+
+# Joe Duris - jduris@slac.stanford.edu
+
+import numpy as np
+from scipy.special import erfinv
+#from hammersley import hammersley
+from chaospy import sequences 
+
+def icdf_transform_1d(su, x, pdfx):
+    # sur is sample from a uniform distribution [0,1]
+    # x is the coordinates of the transformed distribution
+    # pdf is the pdf of x
+    cdf = np.cumsum(pdfx); cdf /= np.max(cdf)
+    return np.interp(su, cdf, x)
+    
+def normal_from_uniform(su,means=None,sigmas=None):
+    # su is sample from a uniform distribution [0,1]
+    # output is normally distributed
+    oneD = False
+    if len(np.shape(su)) == 1:
+        oneD = True
+        su = np.array(su,ndmin=2).T
+    npts, dim = np.shape(su)
+    if means is None:
+        means = np.zeros(dim)
+    if sigmas is None:
+        sigmas = np.ones(dim)
+    xs = np.sqrt(2)*erfinv(-1+2*np.array(su,ndmin=2))
+    xs = np.transpose(np.array(sigmas,ndmin=2).T * xs.T) + np.array(means)
+    if oneD:
+        xs = xs[:,0]
+    return xs
+
+def cut_normal_radial_from_uniform(su,cut_radius_nsigma=10):
+    # su is sample from a uniform distribution [0,1]
+    # output ~ x*exp(-x^2/2)
+    oneD = False
+    if len(np.shape(su)) == 1:
+        oneD = True
+        su = np.array(su,ndmin=2).T
+    npts, dim = np.shape(su)
+    a2 = cut_radius_nsigma**2
+    rs = np.sqrt(a2 - 2 * np.log(su + np.exp(a2/2.) - su * np.exp(a2/2.)))
+    if oneD:
+        rs = rs[:,0]
+    return rs
+    
+def cut_normal_round_from_uniform_2d(su, gauss_sigma, cut_radius):
+    # su is samples from a uniform distribution with shape (npts, dim=2)
+    # note: stdev in x and in y of output distribution is gauss_sigma*np.sqrt(1 + cut_radius**2/(2 - 2*np.exp(cut_radius**2/2)))
+    rs = gauss_sigma * cut_normal_radial_from_uniform(su[:,0],cut_radius_nsigma=cut_radius/gauss_sigma)
+    phis = 2.*np.pi*su[:,1]
+    nd = np.zeros_like(su)
+    nd[:,0] = rs * np.cos(phis)
+    nd[:,1] = rs * np.sin(phis)
+    return nd
+    
+def zcut_spherical_shell_normal_radial_from_uniform_3d(su, rmean, rstd, phi_range=[0,2*np.pi], theta_range=[0,np.pi/2]):
+    # su is samples from a uniform distribution with shape (npts, dim=3)
+    # rmean, rstd, are the radial properties
+    # phi_range is the range of azimuthal angles to (uniformly) cover
+    # theta_range is the range of polar angles to (uniformly) cover
+    rs = normal_from_uniform(su[:,0]) * rstd + rmean
+    phis = su[:,1] * np.abs(np.diff(phi_range))[0] + np.min(phi_range)
+    thetas = su[:,2] * np.abs(np.diff(theta_range))[0] + np.min(theta_range)
+    nd = np.zeros_like(su)
+    nd[:,0] = rs * np.sin(thetas) * np.cos(phis)
+    nd[:,1] = rs * np.sin(thetas) * np.sin(phis)
+    nd[:,2] = rs * np.cos(thetas)
+    return nd
+    
+def interpolate_profile(profilefile='gaus_flat_triangle.npy', tay13scalefactor=0, nradius=3):
+    # profilefile <string> path to profile data to interpolate
+    # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
+    # nradius <int> number of grid points away to grab data for interpolation
+    
+    sf = tay13scalefactor # shorthand
+    
+    if nradius < 1:
+        print('Ah! Ah! Aah! You shouldn\'t interpolate without points.')
+        nradius = 3
+    
+    # load simulated profile data
+    #ps = np.genfromtxt(profilefile, delimiter=',')[1:] # first row = column descriptions
+    ps = np.load(profilefile)
+    
+    # find the unique coords and bounds on inputs
+    unique_ts = np.unique(ps[:,1])
+    unique_fs = np.unique(ps[:,0])
+    minf = min(unique_fs); maxf = max(unique_fs)
+
+    # keep within bounds
+    sf = min(sf, maxf); sf = max(sf, minf)
+
+    # select nearby tay13scalefactors
+    sf_iloc = np.interp(sf, unique_fs, np.arange(len(unique_fs)))
+    cut = np.abs(np.arange(len(unique_fs))-sf_iloc) < nradius
+    
+    # select profiles for these nearby points
+    bigcut = np.sum([ps[:,0] == f for f in unique_fs[cut]],axis=0) == 1
+    pss = ps[bigcut]
+    
+    # interpolate on the selected profiles
+    myinterp = []
+    for t in unique_ts:
+        cut = pss[:,1] == t
+        myinterp += [[t,np.interp(sf,pss[cut,0],pss[cut,2])]]
+    myinterp = np.array(myinterp,ndmin=2)
+    
+    return myinterp
+
+# these numbers are all SI base units
+def make_beam(npart=int(1e6), tay13scalefactor=1, power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
+    # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
+    
+    # pr_eV_mean is energy above ionization in eV: 4.*1240./1030. eV is enery of UV and 2.86 eV is the workfunction of the Cesium Telluride
+    # pr_eV_rms is the standard deviation of the radial momenta in eV: 25.7 meV is kT at room temp, although this should probably be dominated by the QE(photon energy) curve response?
+    # interestingly, the QE should go down with time as we hit the cathode with UV (if intense enough)
+    # said another way, the work function increases with UV exposure => excess momentum and emittance should decrease with increased operation
+    # https://indico.classe.cornell.edu/event/15/contributions/394/attachments/290/364/harkayYusof-p3-2012-final.pdf
+    
+    # NOTE: we'll lay out the beam as a numpy array with shape (npart, 6)
+    #       where the dimensions are ordered as x, y, time, px, py, pz
+    #       ASTRA takes z as zero
+
+    # create beam
+    #beam = np.random.rand(npart,6)
+    beam = sequences.create_hammersley_samples(order=npart, dim=6).T
+    
+    # figure out spread in angles 
+
+    # make the non-time profiles
+    beam[:,:2] = cut_normal_round_from_uniform_2d(beam[:,:2], sigmax, cut_radius_x)
+    beam[:,3:] = zcut_spherical_shell_normal_radial_from_uniform_3d(beam[:,3:], pr_eV_mean, pr_eV_rms, phi_range=[0,2*np.pi], theta_range=[0,np.pi/2])
+    
+    # load temporal profile (assuming current = constant * power)
+    pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
+    #d=pd.read_csv('dist100.part',delim_whitespace=True) # reminder for handling variable space delimiters
+    t = pvst[:,0]*1e-12; dt = np.abs(t[1]-t[0])# seconds
+    p = pvst[:,1]**2 # power (arb. units) --- loaded power is green; simulation shows that SHG in the next crystal (green -> UV) just squares the input power profile
+
+    # apply temporal profile
+    beam[:,2] = icdf_transform_1d(beam[:,2],t,p)
+
+    # how does the temporal profile compare to the input distribution?
+    if plotQ:
+        
+        import matplotlib.pyplot as plt
+        
+        # temporal distribution
+        binfills, binedges, patches = plt.hist(beam[:,2],500); plt.close()
+        arearatio = np.sum(binfills)*np.abs(binedges[1]-binedges[0])/np.sum(p)/dt
+        plt.plot(t, p*arearatio, linewidth=0.8); 
+        plt.scatter(t, p*arearatio,s=0.05,c='Red');
+        plt.hist(beam[:,2],500);
+        plt.xlabel('time (s)'); plt.ylabel('number of particles')
+        plt.show(); plt.close()
+        
+        # transverse position distribution
+        cnames = ['x (m)','y (m)','time (s)','px (eV/c)','py (eV/c)','pz (eV/c)']
+        for p in range(1):
+            plt.hist2d(beam[:,2*p],beam[:,2*p+1],100)
+            plt.xlabel('plane '+str(2*p)+': '+cnames[2*p]); plt.ylabel('plane '+str(2*p+1)+': '+cnames[2*p+1])
+            plt.show(); plt.close()
+            
+        plt.hist(beam[:,0],100,label='x')
+        plt.hist(beam[:,1],100,label='y')
+        plt.xlabel('position (m)'); plt.legend(); plt.show()
+            
+        import matplotlib as mpl
+        from mpl_toolkits.mplot3d import Axes3D
+        
+        # transverse momentum distribution
+        fig = plt.figure()
+        ax = fig.gca(projection='3d')
+        ax = plt.axes(projection='3d')
+        nplotmax3d = 50000
+        if npart > nplotmax3d:
+            print('WARNING: truncating number of particles for plotting for sanity.')
+        ax.scatter(beam[:nplotmax3d,3], beam[:nplotmax3d,4], beam[:nplotmax3d,5], c=beam[:nplotmax3d,5], alpha=0.33, cmap='viridis', linewidth=0.5);
+        ax.set_xlabel('$p_x$ (eV/c)');ax.set_xlabel('$p_y$ (eV/c)');ax.set_xlabel('$p_z$ (eV/c)');plt.show()
+
+    return beam
