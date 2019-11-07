@@ -3,7 +3,7 @@
 # Joe Duris - jduris@slac.stanford.edu
 
 import numpy as np
-from scipy.special import erfinv
+from scipy.special import erfinv, erf
 #from hammersley import hammersley
 from chaospy import sequences 
 
@@ -32,7 +32,7 @@ def normal_from_uniform(su,means=None,sigmas=None):
         xs = xs[:,0]
     return xs
 
-def cut_normal_radial_from_uniform(su,cut_radius_nsigma=10):
+def cut_normal_2dradial_from_uniform(su,cut_radius_nsigma=10):
     # su is sample from a uniform distribution [0,1]
     # output ~ x*exp(-x^2/2)
     oneD = False
@@ -49,21 +49,70 @@ def cut_normal_radial_from_uniform(su,cut_radius_nsigma=10):
 def cut_normal_round_from_uniform_2d(su, gauss_sigma, cut_radius):
     # su is samples from a uniform distribution with shape (npts, dim=2)
     # note: stdev in x and in y of output distribution is gauss_sigma*np.sqrt(1 + cut_radius**2/(2 - 2*np.exp(cut_radius**2/2)))
-    rs = gauss_sigma * cut_normal_radial_from_uniform(su[:,0],cut_radius_nsigma=cut_radius/gauss_sigma)
+    rs = gauss_sigma * cut_normal_2dradial_from_uniform(su[:,0],cut_radius_nsigma=cut_radius/gauss_sigma)
     phis = 2.*np.pi*su[:,1]
     nd = np.zeros_like(su)
     nd[:,0] = rs * np.cos(phis)
     nd[:,1] = rs * np.sin(phis)
     return nd
     
+# numerically unstable as hell for r0/sigmar >> 15, but by then a normal Gaussian isn't a bad approx
+def cdf_r_spherical(r,r0,sigmar):
+    s = np.shape(r)
+    r = np.array(r,ndmin=1)
+    cut = r == r0
+    cdf_r0 = ((-2 + np.exp(-r0**2/(2*sigmar**2)))*r0*sigmar**2 + np.sqrt(np.pi/2)*sigmar*(r0**2 + sigmar**2)* erf(r0/(np.sqrt(2)*sigmar)))/((r0*sigmar**2)/np.exp(r0**2/(2*sigmar**2)) + np.sqrt(np.pi/2)*sigmar*(r0**2 + sigmar**2)*(1 + erf(r0/(np.sqrt(2)*sigmar))))
+    cdf = (-(((-(np.exp(r**2/(2*sigmar**2))*r0) + np.exp((r*r0)/sigmar**2)*(r + r0))*sigmar**2)/ np.exp((r**2 + r0**2)/(2*sigmar**2))) + (np.sqrt(np.pi/2)*(r - r0)*sigmar*(r0**2 + sigmar**2)* erf(np.sqrt((r - r0)**2)/(np.sqrt(2)*sigmar)))/np.sqrt((r - r0)**2) +  np.sqrt(np.pi/2)*sigmar*(r0**2 + sigmar**2)*erf(r0/(np.sqrt(2)*sigmar))) /     ((r0*sigmar**2)/np.exp(r0**2/(2*sigmar**2)) + np.sqrt(np.pi/2)*sigmar*(r0**2 + sigmar**2)* (1 + erf(r0/(np.sqrt(2)*sigmar))))
+    cdf[cut] = cdf_r0
+    cdf = np.reshape(cdf, s)
+    
+    return cdf
+    
+def invcdf_r_spherical(su, r0, sigmar, rmax=None, steps=1001):
+    # su is samples from a uniform distribution with shape (npts, dim=1)
+    if rmax is None:
+        rmax = r0 + 7. * sigmar
+    try:
+        npts, dim = np.shape(su)
+        if dim > 1:
+            print('WARNING: passing too many dimensions!')
+        su = su[:,0]
+    except:
+        pass
+    # generate the cdf for inversion
+    #[r,cdf] = np.transpose([[r,-((np.sqrt(2./np.pi)*r)/np.exp(r**2/2.)) + erf(r/np.sqrt(2))] for r in np.linspace(0,rmax,steps)])
+    fallback = False; numstablethresh = 15
+    if np.abs(r0/sigmar) < numstablethresh:
+        [r,cdf] = np.transpose([[r,cdf_r_spherical(nld(r),nld(r0),nld(sigmar))] for r in np.linspace(0,rmax,steps)])
+        if np.any(np.isnan(cdf)):
+            fallback = True
+        else:
+            su[su > cdf[-2]] = cdf[-2] # map the rest to rmax to avoid extrapolation
+            rs = np.interp(su,cdf,r)
+    if np.abs(r0/sigmar) >= numstablethresh or fallback:
+        rs = normal_from_uniform(su) * sigmar + r0
+    
+    #rs = np.reshape(rs,(len(su),1))
+    
+    return rs
+    
+def invcdf_theta_spherical(su,theta_range=[0,np.pi/2]):
+    # su is samples from a uniform distribution with shape (npts, dim=1)
+    # key points
+    [c0,c1] = (1-np.cos(theta_range))/2
+    thetas = 2 * np.arcsin(np.sqrt(np.min([c0,c1])+np.abs(c0-c1)*su))
+    
+    return thetas
+    
 def zcut_spherical_shell_normal_radial_from_uniform_3d(su, rmean, rstd, phi_range=[0,2*np.pi], theta_range=[0,np.pi/2]):
     # su is samples from a uniform distribution with shape (npts, dim=3)
     # rmean, rstd, are the radial properties
     # phi_range is the range of azimuthal angles to (uniformly) cover
     # theta_range is the range of polar angles to (uniformly) cover
-    rs = normal_from_uniform(su[:,0]) * rstd + rmean
-    phis = su[:,1] * np.abs(np.diff(phi_range))[0] + np.min(phi_range)
-    thetas = su[:,2] * np.abs(np.diff(theta_range))[0] + np.min(theta_range)
+    
+    rs = invcdf_r_spherical(su[:,0], rmean, rstd)
+    phis = np.abs(np.diff(phi_range))[0]*su[:,1]+np.min(phi_range)
+    thetas = invcdf_theta_spherical(su[:,2],theta_range=theta_range)
     nd = np.zeros_like(su)
     nd[:,0] = rs * np.sin(thetas) * np.cos(phis)
     nd[:,1] = rs * np.sin(thetas) * np.sin(phis)
@@ -111,7 +160,7 @@ def interpolate_profile(profilefile='gaus_flat_triangle.npy', tay13scalefactor=0
     return myinterp
 
 # these numbers are all SI base units
-def make_beam(npart=int(1e6), tay13scalefactor=1, power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
+def make_beam(npart=int(5e4), tay13scalefactor=1, power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
     # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
     
     # pr_eV_mean is energy above ionization in eV: 4.*1240./1030. eV is enery of UV and 2.86 eV is the workfunction of the Cesium Telluride
@@ -171,14 +220,17 @@ def make_beam(npart=int(1e6), tay13scalefactor=1, power_profile_file='gaus_flat_
         import matplotlib as mpl
         from mpl_toolkits.mplot3d import Axes3D
         
-        # transverse momentum distribution
+        # momenta distribution
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         ax = plt.axes(projection='3d')
-        nplotmax3d = 50000
+        nplotmax3d = 10000
         if npart > nplotmax3d:
-            print('WARNING: truncating number of particles for plotting for sanity.')
+            print('INFO: truncating number of particles plot for sanity.')
         ax.scatter(beam[:nplotmax3d,3], beam[:nplotmax3d,4], beam[:nplotmax3d,5], c=beam[:nplotmax3d,5], alpha=0.33, cmap='viridis', linewidth=0.5);
         ax.set_xlabel('$p_x$ (eV/c)');ax.set_xlabel('$p_y$ (eV/c)');ax.set_xlabel('$p_z$ (eV/c)');plt.show()
+        
+        plt.hist(np.sqrt(beam[:nplotmax3d,3]**2 + beam[:nplotmax3d,4]**2 + beam[:nplotmax3d,5]**2), 51); 
+        plt.xlabel('radial momenta (eV/c)'); plt.show()
 
     return beam
