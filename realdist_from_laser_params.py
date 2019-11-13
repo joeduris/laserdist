@@ -158,10 +158,60 @@ def interpolate_profile(profilefile='gaus_flat_triangle.npy', tay13scalefactor=0
     myinterp = np.array(myinterp,ndmin=2)
     
     return myinterp
+    
+def quartic_gaussian(x, xfwhm):
+    return 2.**(-(2.*x/xfwhm)**4)
+
+def filtered_green_profile(tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_bg_passfraction=0., power_profile_file='gaus_flat_triangle.npy', plotQ=False):
+    # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
+    # filter_bw_fwhm_nm is the fwhm width of the band pass filter
+    # filter_bg_passfraction is the fraction to pass independent of frequency
+
+    # load temporal profile (assuming current = constant * power)
+    pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
+    t = pvst[:,0]*1e-12; dt = np.abs(t[1]-t[0])# seconds
+    p = pvst[:,1] # power (arb. units)
+    
+    lambda0 = 515.e-9 # green wavelength in m (freq. doubled 1030 nm)
+    f0 = 2.998e8/lambda0 # green frequency in Hz (doubled 1030 nm)
+    Df=1/dt # width of frequency window
+    df=1/(max(t)-min(t)) # delta frequency steps
+    Df=df*(len(t)-1) # once again, frequency window
+    dlambda_nm = 2.998e8/f0**2*df*1e9 # delta wavelength steps in picometers
+    fft_filter_bw = filter_bw_fwhm_nm / dlambda_nm # delta frequency steps in units of df
+    
+    fft = np.fft.fft(p**0.5) # fft of the field strength (assumes slowly varying phase)
+    
+    fft_index = np.fft.ifftshift(np.arange(len(fft))-len(fft)/2.+0.5) # zero at peak of field
+    bgfrac = np.max([0,np.min([1.,filter_bg_passfraction])]);
+    if not (bgfrac - filter_bg_passfraction)==0:
+        print('WARNING: filter_bg_passfraction =', filter_bg_passfraction, 'is not valid so changing to closest valid value in range [0,1]:', bgfrac)
+    fft_filter = (1.-bgfrac)*quartic_gaussian(fft_index,fft_filter_bw) + bgfrac
+    if plotQ:
+        lambdas = 1e9*(lambda0+np.fft.fftshift(fft_index)*dlambda_nm)
+        absfft = np.fft.fftshift(np.abs(fft)); absfft /= np.max(absfft)
+        shiftfilt = np.fft.fftshift(fft_filter)
+        plt.plot(lambdas, absfft, label='input'); plt.plot(lambdas, shiftfilt, label='filter')
+        plt.plot(lambdas, absfft*shiftfilt, label='output'); plt.xlabel('wave length (nm)'); 
+        plt.legend(); plt.show(); plt.close()
+    
+    p = np.abs(np.fft.ifft(fft * fft_filter))**2
+    if plotQ:
+        plt.plot(pvst[:,0],pvst[:,1], label='input')
+        plt.plot(pvst[:,0],p, label='output'); plt.xlabel('time (ps)'); 
+        plt.legend(); plt.show(); plt.close()
+    pvst[:,1] = p
+    
+    return pvst
 
 # these numbers are all SI base units
-def make_beam(npart=int(5e4), tay13scalefactor=1, power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
-    # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
+def make_beam(npart=int(5e4), tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_bg_passfraction=0., t_origin_ps=0., power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
+    # tay13scalefactor <float> should be a real number in range [-3.,3.]:
+    #   NOTE: the sign of tay13scalefactor flips the origin of time
+    #   0 => Gaussian; 1 => flat-top; 2 => triangle; 3 => smoother triangle facing opposite direction
+    # filter_bw_fwhm_nm <float> [0.,1e3] is the fwhm width of the band pass filter; 1 should smooth most ripples; 10 should pass everything
+    # filter_bg_passfraction <float> is the fraction of power [0.,1.] to pass independent of frequency; default is 0, but 1 is equivalent to no bandpass filter
+    # t_origin_ps <float> is the time in ps to shift the beam by (default is 0.)
     
     # pr_eV_mean is energy above ionization in eV: 4.*1240./1030. eV is enery of UV and 2.86 eV is the workfunction of the Cesium Telluride
     # pr_eV_rms is the standard deviation of the radial momenta in eV: 25.7 meV is kT at room temp, although this should probably be dominated by the QE(photon energy) curve response?
@@ -172,6 +222,11 @@ def make_beam(npart=int(5e4), tay13scalefactor=1, power_profile_file='gaus_flat_
     # NOTE: we'll lay out the beam as a numpy array with shape (npart, 6)
     #       where the dimensions are ordered as x, y, time, px, py, pz
     #       ASTRA takes z as zero
+    
+    # validate range of t_sign
+    t_sign = 1.*np.sign(tay13scalefactor);
+    if np.abs(t_sign) < 1.:
+        t_sign = 1.
 
     # create beam
     #beam = np.random.rand(npart,6)
@@ -184,9 +239,10 @@ def make_beam(npart=int(5e4), tay13scalefactor=1, power_profile_file='gaus_flat_
     beam[:,3:] = zcut_spherical_shell_normal_radial_from_uniform_3d(beam[:,3:], pr_eV_mean, pr_eV_rms, phi_range=[0,2*np.pi], theta_range=[0,np.pi/2])
     
     # load temporal profile (assuming current = constant * power)
-    pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
+    #pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
+    pvst = filtered_green_profile(tay13scalefactor=tay13scalefactor, filter_bw_fwhm_nm=filter_bw_fwhm_nm, filter_bg_passfraction=filter_bg_passfraction, power_profile_file=power_profile_file, plotQ=plotQ)
     #d=pd.read_csv('dist100.part',delim_whitespace=True) # reminder for handling variable space delimiters
-    t = pvst[:,0]*1e-12; dt = np.abs(t[1]-t[0])# seconds
+    t = (t_sign*pvst[:,0]-t_origin_ps)*1e-12; dt = np.abs(t[1]-t[0])# seconds
     p = pvst[:,1]**2 # power (arb. units) --- loaded power is green; simulation shows that SHG in the next crystal (green -> UV) just squares the input power profile
 
     # apply temporal profile
