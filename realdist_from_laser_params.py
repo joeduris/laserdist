@@ -162,13 +162,21 @@ def interpolate_profile(profilefile='gaus_flat_triangle.npy', tay13scalefactor=0
 def quartic_gaussian(x, xfwhm):
     return 2.**(-(2.*x/xfwhm)**4)
 
-def filtered_green_profile(tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_bg_passfraction=0., power_profile_file='gaus_flat_triangle.npy', plotQ=False):
-    # tay13scalefactor <float> should be between 0 and 1.25; 0 => Gaussian & 1 => flat-top
-    # filter_bw_fwhm_nm is the fwhm width of the band pass filter
-    # filter_bg_passfraction is the fraction to pass independent of frequency
+def filtered_green_profile(tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_passfraction=0., power_profile_file='gaus_flat_triangle.npy', plotQ=False):
+    # tay13scalefactor <float> should be a real number in range [-3.,3.]:
+    #   NOTE: the sign of tay13scalefactor flips the origin of time
+    #   0 => Gaussian; 1 => flat-top; 2 => triangle; 3 => smoother triangle facing opposite direction
+    # filter_bw_fwhm_nm <float> [0.,1e3] is the fwhm width of the band pass filter; 1 should smooth most ripples; 10 should pass everything
+    # filter_bg_passfraction <float> is the fraction of power [0.,1.] to pass independent of frequency; default is 0, but 1 is equivalent to no bandpass filter
 
+    # validate range of t_sign
+    t_sign = 1.*np.sign(tay13scalefactor);
+    if np.abs(t_sign) < 1.:
+        t_sign = 1.
+    
     # load temporal profile (assuming current = constant * power)
-    pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
+    pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=np.abs(tay13scalefactor))
+    pvst[:,0] *= t_sign # reverse time
     t = pvst[:,0]*1e-12; dt = np.abs(t[1]-t[0])# seconds
     p = pvst[:,1] # power (arb. units)
     
@@ -205,7 +213,7 @@ def filtered_green_profile(tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_bg_p
     return pvst
 
 # these numbers are all SI base units
-def make_beam(npart=int(5e4), tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_bg_passfraction=0., t_origin_ps=0., power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
+def make_beam(npart=int(5e4), tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_passfraction=0., t_origin_ps=0., power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
     # tay13scalefactor <float> should be a real number in range [-3.,3.]:
     #   NOTE: the sign of tay13scalefactor flips the origin of time
     #   0 => Gaussian; 1 => flat-top; 2 => triangle; 3 => smoother triangle facing opposite direction
@@ -222,11 +230,6 @@ def make_beam(npart=int(5e4), tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_b
     # NOTE: we'll lay out the beam as a numpy array with shape (npart, 6)
     #       where the dimensions are ordered as x, y, time, px, py, pz
     #       ASTRA takes z as zero
-    
-    # validate range of t_sign
-    t_sign = 1.*np.sign(tay13scalefactor);
-    if np.abs(t_sign) < 1.:
-        t_sign = 1.
 
     # create beam
     #beam = np.random.rand(npart,6)
@@ -242,7 +245,7 @@ def make_beam(npart=int(5e4), tay13scalefactor=1, filter_bw_fwhm_nm=1., filter_b
     #pvst = interpolate_profile(profilefile=power_profile_file, tay13scalefactor=tay13scalefactor)
     pvst = filtered_green_profile(tay13scalefactor=tay13scalefactor, filter_bw_fwhm_nm=filter_bw_fwhm_nm, filter_bg_passfraction=filter_bg_passfraction, power_profile_file=power_profile_file, plotQ=plotQ)
     #d=pd.read_csv('dist100.part',delim_whitespace=True) # reminder for handling variable space delimiters
-    t = (t_sign*pvst[:,0]-t_origin_ps)*1e-12; dt = np.abs(t[1]-t[0])# seconds
+    t = (pvst[:,0]-t_origin_ps)*1e-12; dt = np.abs(t[1]-t[0])# seconds
     p = pvst[:,1]**2 # power (arb. units) --- loaded power is green; simulation shows that SHG in the next crystal (green -> UV) just squares the input power profile
 
     # apply temporal profile
