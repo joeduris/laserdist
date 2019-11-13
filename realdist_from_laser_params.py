@@ -196,7 +196,8 @@ def filtered_green_profile(tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_
         print('WARNING: filter_bg_passfraction =', filter_bg_passfraction, 'is not valid so changing to closest valid value in range [0,1]:', bgfrac)
     fft_filter = (1.-bgfrac)*quartic_gaussian(fft_index,fft_filter_bw) + bgfrac
     if plotQ:
-        lambdas = 1e9*(lambda0+np.fft.fftshift(fft_index)*dlambda_nm)
+        import matplotlib.pyplot as plt
+        lambdas = 1e9*lambda0+np.fft.fftshift(fft_index)*dlambda_nm
         absfft = np.fft.fftshift(np.abs(fft)); absfft /= np.max(absfft)
         shiftfilt = np.fft.fftshift(fft_filter)
         plt.plot(lambdas, absfft, label='input'); plt.plot(lambdas, shiftfilt, label='filter')
