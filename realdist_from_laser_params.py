@@ -200,8 +200,9 @@ def filtered_green_profile(tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_
         lambdas = 1e9*lambda0+np.fft.fftshift(fft_index)*dlambda_nm
         absfft = np.fft.fftshift(np.abs(fft)); absfft /= np.max(absfft)
         shiftfilt = np.fft.fftshift(fft_filter)
-        plt.plot(lambdas, absfft, label='input'); plt.plot(lambdas, shiftfilt, label='filter')
-        plt.plot(lambdas, absfft*shiftfilt, label='output'); plt.xlabel('wave length (nm)'); 
+        plt.plot(lambdas, absfft, label='input')
+        plt.plot(lambdas, absfft*shiftfilt, label='output'); plt.xlabel('wave length (nm)')
+        plt.plot(lambdas, shiftfilt, label='filter')
         plt.legend(); plt.show(); plt.close()
     
     p = np.abs(np.fft.ifft(fft * fft_filter))**2
@@ -209,12 +210,13 @@ def filtered_green_profile(tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_
         plt.plot(pvst[:,0],pvst[:,1], label='input')
         plt.plot(pvst[:,0],p, label='output'); plt.xlabel('time (ps)'); 
         plt.legend(); plt.show(); plt.close()
+    print('Fraction of power filtered:',np.sum(p)/np.sum(pvst[:,1]) - 1.);
     pvst[:,1] = p
     
     return pvst
 
 # these numbers are all SI base units
-def make_beam(npart=int(5e4), tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_passfraction=0., t_origin_ps=0., power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, sigmagamma=0.0005/511., plotQ=False):
+def make_beam(npart=int(5e4), tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_bg_passfraction=0., t_origin_ps=0., power_profile_file='gaus_flat_triangle.npy', sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, plotQ=False):
     # tay13scalefactor <float> should be a real number in range [-3.,3.]:
     #   NOTE: the sign of tay13scalefactor flips the origin of time
     #   0 => Gaussian; 1 => flat-top; 2 => triangle; 3 => smoother triangle facing opposite direction
@@ -267,14 +269,15 @@ def make_beam(npart=int(5e4), tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_
         plt.show(); plt.close()
         
         # transverse position distribution
-        cnames = ['x (m)','y (m)','time (s)','px (eV/c)','py (eV/c)','pz (eV/c)']
+        cnames = ['x (um)','y (um)','time (s)','px (eV/c)','py (eV/c)','pz (eV/c)']
+        unitscales = [1e6,1e6,1,1,1,1]
         for p in range(1):
-            plt.hist2d(beam[:,2*p],beam[:,2*p+1],100)
+            plt.hist2d(beam[:,2*p]*unitscales[2*p],beam[:,2*p+1]*unitscales[2*p+1],100)
             plt.xlabel('plane '+str(2*p)+': '+cnames[2*p]); plt.ylabel('plane '+str(2*p+1)+': '+cnames[2*p+1])
             plt.show(); plt.close()
             
-        plt.hist(beam[:,0],100,label='x')
-        plt.hist(beam[:,1],100,label='y')
+        plt.hist(beam[:,0]*unitscales[0],100,label='x')
+        plt.hist(beam[:,1]*unitscales[1],100,label='y')
         plt.xlabel('position (m)'); plt.legend(); plt.show()
             
         import matplotlib as mpl
@@ -284,13 +287,13 @@ def make_beam(npart=int(5e4), tay13scalefactor=1., filter_bw_fwhm_nm=1., filter_
         fig = plt.figure()
         ax = fig.gca(projection='3d')
         ax = plt.axes(projection='3d')
-        nplotmax3d = 10000
+        nplotmax3d = 50000
         if npart > nplotmax3d:
-            print('INFO: truncating number of particles plot for sanity.')
+            print('INFO: truncating number of particles plot to',nplotmax3d,'for sanity.')
         ax.scatter(beam[:nplotmax3d,3], beam[:nplotmax3d,4], beam[:nplotmax3d,5], c=beam[:nplotmax3d,5], alpha=0.33, cmap='viridis', linewidth=0.5);
-        ax.set_xlabel('$p_x$ (eV/c)');ax.set_xlabel('$p_y$ (eV/c)');ax.set_xlabel('$p_z$ (eV/c)');plt.show()
+        ax.set_xlabel('$p_x$ (eV/c)');ax.set_ylabel('$p_y$ (eV/c)');ax.set_zlabel('$p_z$ (eV/c)');plt.show()
         
-        plt.hist(np.sqrt(beam[:nplotmax3d,3]**2 + beam[:nplotmax3d,4]**2 + beam[:nplotmax3d,5]**2), 51); 
+        plt.hist(np.sqrt(beam[:nplotmax3d,3]**2 + beam[:nplotmax3d,4]**2 + beam[:nplotmax3d,5]**2), 101); 
         plt.xlabel('radial momenta (eV/c)'); plt.show()
 
     return beam
