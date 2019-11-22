@@ -128,7 +128,7 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
     # force_t_peak_equal_t_origin_ps <bool> shifts time coords so that profile peak is equal to t_origin_ps
     
     t_width_ps = np.abs(t_width_ps)
-    t1 = t_origin_ps - t_width_ps; t2 = t_origin_ps + t_width_ps
+    t1 = t_origin_ps - 0.5 * t_width_ps; t2 = t_origin_ps + 0.5 * t_width_ps
     dt1 = np.abs(dt_low_ps); dt2 = np.abs(dt_high_ps); dt = np.abs(t2 - t1)
     
     if t_range_ps is None:
@@ -144,16 +144,16 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
     
     if force_t_rms_equal_t_width_ps:
         tmean = np.dot(t,p) / np.sum(p)
-        trms = np.sqrt(np.dot(t**2,p) / np.sum(p) - tmean)
-        t *= trms / t_width_ps
+        trms = np.sqrt(np.dot(t**2,p) / np.sum(p) - tmean**2)
+        t *= t_width_ps / trms
         
     if force_t_fwhm_equal_t_width_ps:
-        preduced = np.abs(p/np.max(p) - 0.5)
+        preduced = np.abs(p - 0.5 * np.max(p))
         ipeak = p.argmax()
         ilow = preduced[:ipeak].argmin()
-        ihigh = preduced[ipeak:].argmin()
+        ihigh = ipeak + preduced[ipeak:].argmin()
         tfwhm = np.abs(t[ihigh] - t[ilow])
-        t *= tfwhm / t_width_ps
+        t *= t_width_ps / tfwhm
         
     if force_t_mean_equal_t_origin_ps:
         tmean = np.dot(t,p) / np.sum(p)
@@ -166,7 +166,7 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
     pvst = np.vstack((t,p)).T
     return pvst
 
-def make_beam(npart=int(5e4), t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_high_ps=1., slope=0., force_t_rms_equal_t_width_ps=False, force_t_fwhm_equal_t_width_ps=False, force_t_mean_equal_t_origin_ps=False, force_t_peak_equal_t_origin_ps=False, sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, plotQ=False):
+def make_beam(npart=int(5e4), t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_high_ps=1., slope=0., force_t_rms_equal_t_width_ps=False, force_t_fwhm_equal_t_width_ps=True, force_t_mean_equal_t_origin_ps=True, force_t_peak_equal_t_origin_ps=False, sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, plotQ=False):
     # t_width_ps <float> is the pulse duration in ps; if slope==0, then this is the FWHM width; otherwise, this is an upper bound on the width
     # t_origin_ps <float> is the time in ps to shift the beam by
     # dt_low_ps <float> is the duration of the lower ramp
@@ -201,7 +201,7 @@ def make_beam(npart=int(5e4), t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_h
     # load temporal profile (assuming current = constant * power)
     pvst = custom_power_profile_ps(t_width_ps=t_width_ps, t_origin_ps=t_origin_ps, dt_low_ps=dt_low_ps, dt_high_ps=dt_high_ps, slope=slope, t_range_ps=None, dt_range_ps=0.01, force_t_rms_equal_t_width_ps=force_t_rms_equal_t_width_ps, force_t_fwhm_equal_t_width_ps=force_t_fwhm_equal_t_width_ps, force_t_mean_equal_t_origin_ps=force_t_mean_equal_t_origin_ps, force_t_peak_equal_t_origin_ps=force_t_peak_equal_t_origin_ps)
     t = pvst[:,0]*1e-12; dt = np.abs(t[1]-t[0])# seconds
-    p = pvst[:,1]**2 # power (arb. units) --- loaded power is green; simulation shows that SHG in the next crystal (green -> UV) just squares the input power profile
+    p = pvst[:,1] # power (arb. units)
 
     # apply temporal profile
     beam[:,2] = icdf_transform_1d(beam[:,2],t,p)
