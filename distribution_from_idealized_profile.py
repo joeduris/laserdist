@@ -132,7 +132,7 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
     dt1 = np.abs(dt_low_ps); dt2 = np.abs(dt_high_ps); dt = np.abs(t2 - t1)
     
     if t_range_ps is None:
-        t_range_ps = 2. * np.array([t1 - dt1, t2 - dt2])
+        t_range_ps = 2. * np.array([t1 - dt1, t2 + dt2])
     
     npts = np.abs(np.diff(t_range_ps) / dt_range_ps)
     t = np.linspace(np.min(t_range_ps), np.max(t_range_ps), npts)
