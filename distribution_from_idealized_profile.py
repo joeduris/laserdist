@@ -128,42 +128,42 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
     # force_t_peak_equal_t_origin_ps <bool> shifts time coords so that profile peak is equal to t_origin_ps
     
     t_width_ps = np.abs(t_width_ps)
-    x1 = t_origin_ps - t_width_ps; x2 = t_origin_ps + t_width_ps
-    dx1 = np.abs(dt_low_ps); dx2 = np.abs(dt_high_ps); dx = np.abs(x2 - x1)
+    t1 = t_origin_ps - t_width_ps; t2 = t_origin_ps + t_width_ps
+    dt1 = np.abs(dt_low_ps); dt2 = np.abs(dt_high_ps); dt = np.abs(t2 - t1)
     
     if t_range_ps is None:
-        t_range_ps = 2. * np.array([x1 - dx1, x2 - dx2])
+        t_range_ps = 2. * np.array([t1 - dt1, t2 - dt2])
     
     npts = np.abs(np.diff(t_range_ps) / dt_range_ps)
-    x = np.linspace(np.min(t_range_ps), np.max(t_range_ps), npts)
-    base = 3. + 2*Sqrt[2]
+    t = np.linspace(np.min(t_range_ps), np.max(t_range_ps), npts)
+    base = 3. + 2.*np.sqrt(2)
     
-    p = 2. / (1 + np.exp(-8*x*slope/dx)
-    p /= 1. + base**(-2.*(x - x1)/dx1)
-    p /= 1. + base**(2.*(x - x2)/dx2)
+    p = 2. / (1. + np.exp(-8.*t*slope/dt))
+    p /= 1. + base**(-2.*(t - t1)/dt1)
+    p /= 1. + base**(2.*(t - t2)/dt2)
     
     if force_t_rms_equal_t_width_ps:
-        tmean = np.dot(x,p) / np.sum(p)
-        trms = np.sqrt(np.dot(x**2,p) / np.sum(p) - tmean)
-        x *= trms / t_width_ps
+        tmean = np.dot(t,p) / np.sum(p)
+        trms = np.sqrt(np.dot(t**2,p) / np.sum(p) - tmean)
+        t *= trms / t_width_ps
         
     if force_t_fwhm_equal_t_width_ps:
         preduced = np.abs(p/np.max(p) - 0.5)
         ipeak = p.argmax()
         ilow = preduced[:ipeak].argmin()
         ihigh = preduced[ipeak:].argmin()
-        tfwhm = x[ihigh] - x[ilow]
-        x *= tfwhm / t_width_ps
+        tfwhm = t[ihigh] - t[ilow]
+        t *= tfwhm / t_width_ps
         
     if force_t_mean_equal_t_origin_ps:
-        tmean = np.dot(x,p) / np.sum(p)
+        tmean = np.dot(t,p) / np.sum(p)
         t -= tmean
         
     if force_t_peak_equal_t_origin_ps:
         ipeak = p.argmax()
         t -= t[ipeak]
         
-    pvst = np.vstack((x,p)).T
+    pvst = np.vstack((t,p)).T
     return pvst
 
 def make_beam(npart=int(5e4), t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_high_ps=1., slope=0., force_t_rms_equal_t_width_ps=False, force_t_fwhm_equal_t_width_ps=False, force_t_mean_equal_t_origin_ps=False, force_t_peak_equal_t_origin_ps=False, sigmax=300e-6, cut_radius_x=450e-6, pr_eV_mean=4.*1240./1030.-2.86, pr_eV_rms=25.7e-3, plotQ=False):
