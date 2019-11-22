@@ -152,7 +152,7 @@ def custom_power_profile_ps(t_width_ps=20., t_origin_ps=0., dt_low_ps=1., dt_hig
         ipeak = p.argmax()
         ilow = preduced[:ipeak].argmin()
         ihigh = preduced[ipeak:].argmin()
-        tfwhm = t[ihigh] - t[ilow]
+        tfwhm = np.abs(t[ihigh] - t[ilow])
         t *= tfwhm / t_width_ps
         
     if force_t_mean_equal_t_origin_ps:
