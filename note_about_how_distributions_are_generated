@@ -1,0 +1,11 @@
+How the distributions are generated
+
+The npy files contain distributions of *green pulses* made in a Mathematica notebook Randy gave me. I looped over his routine, scanning a parameter that transforms the output distribution from squarish to Gaussian in one case and from Gaussian to square to triangular in another case. Randy suggested that parameter and says it's an experimentally controllable param. The result is a series of temporal profiles of power vs time. Those are saved to numpy arrays (see the npy files in this project) which are loaded by the scripts on that laserdist code. 
+
+For a given tay13scalefactor parameter, a few of the generated pulse profiles closest to the desired values are pulled from that array data. For a given time coordinate, we now have a series of power vs tay13scalefactor points and the power is interpolated to estimate the power for the desired tay13scalefactor. That's done at every time coordinate to generate the green power profile.
+
+The green power profile is squared to calculate the UV power profile. With Randy's help, I verified with a simulation that the frequency doubling does indeed just result in a power profile proportional tothe square of the input power.
+
+The UV power profile (P vs t) is then normalized and integrated to produce a cumulative distribution function (CDF). A Hammersley sequence of 6D points uniformly distributed over a 6D box [0,1] in each coordinate is generated and one of these coordinates is passed through an inverse CDF transformation using an interpolation of the UV pulse profile CDF, producing points which are distributed as the UV power profile.
+
+The remaining coords are transformed in the same way with using the CDF of the distributions for the other coordinates (e.g. binormal for transverse coords, and over a shell in momentum space uniformly distributed over a half shell pointing outside the cathode with a radial distribution essentially normally distributed with a mean of U_{UV,photon} - U_{workfunction} with an rms spread of kT at room temp. See the source code for URLs referencing where specific numbers came from.
