@@ -1,6 +1,12 @@
 How the distributions are generated
 
-The npy files contain distributions of *green pulses* made in a Mathematica notebook Randy gave me. I looped over his routine, scanning a parameter that transforms the output distribution from squarish to Gaussian in one case and from Gaussian to square to triangular in another case. Randy suggested that parameter and says it's an experimentally controllable param. The result is a series of temporal profiles of power vs time. Those are saved to numpy arrays (see the npy files in this project) which are loaded by the scripts on that laserdist code. 
+The npy files contain distributions of *green pulses* made in a Mathematica notebook Randy gave me. I looped over his routine, scanning a parameter that transforms the output distribution from squarish to Gaussian in one case and from Gaussian to square to triangular in another case. Randy suggested that parameter and says it's an experimentally controllable param. The result is a series of temporal profiles of the real and imaginary parts of the electric field vs time. Those are saved to numpy arrays (see the npy files in this project) which are loaded by the scripts on that laserdist code. 
+
+Column format for the npy files:
+1) tayscalefactor
+2) t(ps)	
+3) Re[E]	
+4) Im[E] 
 
 For a given tay13scalefactor parameter, a few of the generated pulse profiles closest to the desired values are pulled from that array data. For a given time coordinate, we now have a series of power vs tay13scalefactor points and the power is interpolated to estimate the power for the desired tay13scalefactor. That's done at every time coordinate to generate the green power profile.
 
